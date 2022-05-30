@@ -139,7 +139,7 @@ def main(hps):
     sess = tensorflow_session()
 
     # Download and load dataset.
-    tf.set_random_seed(hvd.rank() + hvd.size() * hps.seed)
+    tf.compat.v1.set_random_seed(hvd.rank() + hvd.size() * hps.seed)
     np.random.seed(hvd.rank() + hvd.size() * hps.seed)
 
     # Get data and set train_its and valid_its
@@ -308,11 +308,11 @@ Create tensorflow session with horovod
 '''
 def tensorflow_session():
     # Init session and params
-    config = tf.ConfigProto()
+    config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
     # Pin GPU to local rank (one GPU per process)
     config.gpu_options.visible_device_list = str(hvd.local_rank())
-    sess = tf.Session(config=config)
+    sess = tf.compat.v1.Session(config=config)
     return sess
 
 

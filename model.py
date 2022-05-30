@@ -23,12 +23,12 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
 
     # === Loss and optimizer
     loss_train, stats_train = f_loss(train_iterator, True)
-    all_params = tf.trainable_variables()
+    all_params = tf.compat.v1.trainable_variables()
     if hps.gradient_checkpointing == 1:
         from memory_saving_gradients import gradients
         gs = gradients(loss_train, all_params)
     else:
-        gs = tf.gradients(loss_train, all_params)
+        gs = tf.gradients(ys=loss_train, xs=all_params)
 
     optimizer = {'adam': optim.adam, 'adamax': optim.adamax,
                  'adam2': optim.adam2}[hps.optimizer]
@@ -58,8 +58,8 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
         m.test = _test
 
     # === Saving and restoring
-    saver = tf.train.Saver()
-    saver_ema = tf.train.Saver(ema.variables_to_restore())
+    saver = tf.compat.v1.train.Saver()
+    saver_ema = tf.compat.v1.train.Saver(ema.variables_to_restore())
     m.save_ema = lambda path: saver_ema.save(
         sess, path, write_meta_graph=False)
     m.save = lambda path: saver.save(sess, path, write_meta_graph=False)
@@ -71,7 +71,7 @@ def abstract_model_xy(sess, hps, feeds, train_iterator, test_iterator, data_init
     else:
         with Z.arg_scope([Z.get_variable_ddi, Z.actnorm], init=True):
             results_init = f_loss(None, True, reuse=True)
-        sess.run(tf.global_variables_initializer())
+        sess.run(tf.compat.v1.global_variables_initializer())
         sess.run(results_init, {feeds['x']: data_init['x'],
                                 feeds['y']: data_init['y']})
     sess.run(hvd.broadcast_global_variables(0))
@@ -103,10 +103,10 @@ def codec(hps):
 
 def prior(name, y_onehot, hps):
 
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         n_z = hps.top_shape[-1]
 
-        h = tf.zeros([tf.shape(y_onehot)[0]]+hps.top_shape[:2]+[2*n_z])
+        h = tf.zeros([tf.shape(input=y_onehot)[0]]+hps.top_shape[:2]+[2*n_z])
         if hps.learntop:
             h = Z.conv2d_zeros('p', h, 2*n_z)
         if hps.ycond:
@@ -141,11 +141,11 @@ def prior(name, y_onehot, hps):
 def model(sess, hps, train_iterator, test_iterator, data_init):
 
     # Only for decoding/init, rest use iterators directly
-    with tf.name_scope('input'):
-        X = tf.placeholder(
+    with tf.compat.v1.name_scope('input'):
+        X = tf.compat.v1.placeholder(
             tf.uint8, [None, hps.image_size, hps.image_size, 3], name='image')
-        Y = tf.placeholder(tf.int32, [None], name='label')
-        lr = tf.placeholder(tf.float32, None, name='learning_rate')
+        Y = tf.compat.v1.placeholder(tf.int32, [None], name='label')
+        lr = tf.compat.v1.placeholder(tf.float32, None, name='learning_rate')
 
     encoder, decoder = codec(hps)
     hps.n_bins = 2. ** hps.n_bits_x
@@ -162,13 +162,13 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
 
     def _f_loss(x, y, is_training, reuse=False):
 
-        with tf.variable_scope('model', reuse=reuse):
+        with tf.compat.v1.variable_scope('model', reuse=reuse):
             y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
 
             # Discrete -> Continuous
             objective = tf.zeros_like(x, dtype='float32')[:, 0, 0, 0]
             z = preprocess(x)
-            z = z + tf.random_uniform(tf.shape(z), 0, 1./hps.n_bins)
+            z = z + tf.random.uniform(tf.shape(input=z), 0, 1./hps.n_bins)
             objective += - np.log(hps.n_bins) * np.prod(Z.int_shape(z)[1:])
 
             # Encode
@@ -189,13 +189,13 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
             if hps.weight_y > 0 and hps.ycond:
 
                 # Classification loss
-                h_y = tf.reduce_mean(z, axis=[1, 2])
+                h_y = tf.reduce_mean(input_tensor=z, axis=[1, 2])
                 y_logits = Z.linear_zeros("classifier", h_y, hps.n_y)
-                bits_y = tf.nn.softmax_cross_entropy_with_logits_v2(
+                bits_y = tf.nn.softmax_cross_entropy_with_logits(
                     labels=y_onehot, logits=y_logits) / np.log(2.)
 
                 # Classification accuracy
-                y_predicted = tf.argmax(y_logits, 1, output_type=tf.int32)
+                y_predicted = tf.argmax(input=y_logits, axis=1, output_type=tf.int32)
                 classification_error = 1 - \
                     tf.cast(tf.equal(y_predicted, y), tf.float32)
             else:
@@ -214,9 +214,9 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
         local_loss = bits_x + hps.weight_y * bits_y
         stats = [local_loss, bits_x, bits_y, pred_loss]
         global_stats = Z.allreduce_mean(
-            tf.stack([tf.reduce_mean(i) for i in stats]))
+            tf.stack([tf.reduce_mean(input_tensor=i) for i in stats]))
 
-        return tf.reduce_mean(local_loss), global_stats
+        return tf.reduce_mean(input_tensor=local_loss), global_stats
 
     feeds = {'x': X, 'y': Y}
     m = abstract_model_xy(sess, hps, feeds, train_iterator,
@@ -224,7 +224,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
 
     # === Sampling function
     def f_sample(y, eps_std):
-        with tf.variable_scope('model', reuse=True):
+        with tf.compat.v1.variable_scope('model', reuse=True):
             y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
 
             _, sample, _ = prior("prior", y_onehot, hps)
@@ -235,7 +235,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
 
         return x
 
-    m.eps_std = tf.placeholder(tf.float32, [None], name='eps_std')
+    m.eps_std = tf.compat.v1.placeholder(tf.float32, [None], name='eps_std')
     x_sampled = f_sample(Y, m.eps_std)
 
     def sample(_y, _eps_std):
@@ -245,13 +245,13 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
     if hps.inference:
         # === Encoder-Decoder functions
         def f_encode(x, y, reuse=True):
-            with tf.variable_scope('model', reuse=reuse):
+            with tf.compat.v1.variable_scope('model', reuse=reuse):
                 y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
 
                 # Discrete -> Continuous
                 objective = tf.zeros_like(x, dtype='float32')[:, 0, 0, 0]
                 z = preprocess(x)
-                z = z + tf.random_uniform(tf.shape(z), 0, 1. / hps.n_bins)
+                z = z + tf.random.uniform(tf.shape(input=z), 0, 1. / hps.n_bins)
                 objective += - np.log(hps.n_bins) * np.prod(Z.int_shape(z)[1:])
 
                 # Encode
@@ -267,7 +267,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
             return eps
 
         def f_decode(y, eps, reuse=True):
-            with tf.variable_scope('model', reuse=reuse):
+            with tf.compat.v1.variable_scope('model', reuse=reuse):
                 y_onehot = tf.cast(tf.one_hot(y, hps.n_y, 1, 0), 'float32')
 
                 _, sample, _ = prior("prior", y_onehot, hps)
@@ -283,7 +283,7 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
         print(enc_eps)
         for i, _eps in enumerate(enc_eps):
             print(_eps)
-            dec_eps.append(tf.placeholder(tf.float32, _eps.get_shape().as_list(), name="dec_eps_" + str(i)))
+            dec_eps.append(tf.compat.v1.placeholder(tf.float32, _eps.get_shape().as_list(), name="dec_eps_" + str(i)))
         dec_x = f_decode(Y, dec_eps)
 
         eps_shapes = [_eps.get_shape().as_list()[1:] for _eps in enc_eps]
@@ -323,7 +323,7 @@ def checkpoint(z, logdet):
     z = tf.reshape(z, [-1, zshape[1]*zshape[2]*zshape[3]])
     logdet = tf.reshape(logdet, [-1, 1])
     combined = tf.concat([z, logdet], axis=1)
-    tf.add_to_collection('checkpoints', combined)
+    tf.compat.v1.add_to_collection('checkpoints', combined)
     logdet = combined[:, -1]
     z = tf.reshape(combined[:, :-1], [-1, zshape[1], zshape[2], zshape[3]])
     return z, logdet
@@ -331,7 +331,7 @@ def checkpoint(z, logdet):
 
 @add_arg_scope
 def revnet2d(name, z, logdet, hps, reverse=False):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         if not reverse:
             for i in range(hps.depth):
                 z, logdet = checkpoint(z, logdet)
@@ -345,7 +345,7 @@ def revnet2d(name, z, logdet, hps, reverse=False):
 # Simpler, new version
 @add_arg_scope
 def revnet2d_step(name, z, logdet, hps, reverse):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
 
         shape = Z.int_shape(z)
         n_z = shape[3]
@@ -376,7 +376,7 @@ def revnet2d_step(name, z, logdet, hps, reverse):
                 scale = tf.nn.sigmoid(h[:, :, :, 1::2] + 2.)
                 z2 += shift
                 z2 *= scale
-                logdet += tf.reduce_sum(tf.log(scale), axis=[1, 2, 3])
+                logdet += tf.reduce_sum(input_tensor=tf.math.log(scale), axis=[1, 2, 3])
             else:
                 raise Exception()
 
@@ -396,7 +396,7 @@ def revnet2d_step(name, z, logdet, hps, reverse):
                 scale = tf.nn.sigmoid(h[:, :, :, 1::2] + 2.)
                 z2 /= scale
                 z2 -= shift
-                logdet -= tf.reduce_sum(tf.log(scale), axis=[1, 2, 3])
+                logdet -= tf.reduce_sum(input_tensor=tf.math.log(scale), axis=[1, 2, 3])
             else:
                 raise Exception()
 
@@ -419,7 +419,7 @@ def revnet2d_step(name, z, logdet, hps, reverse):
 
 def f(name, h, width, n_out=None):
     n_out = n_out or int(h.get_shape()[3])
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         h = tf.nn.relu(Z.conv2d("l_1", h, width))
         h = tf.nn.relu(Z.conv2d("l_2", h, width, filter_size=[1, 1]))
         h = Z.conv2d_zeros("l_last", h, n_out)
@@ -428,7 +428,7 @@ def f(name, h, width, n_out=None):
 
 def f_resnet(name, h, width, n_out=None):
     n_out = n_out or int(h.get_shape()[3])
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         h = tf.nn.relu(Z.conv2d("l_1", h, width))
         h = Z.conv2d_zeros("l_2", h, n_out)
     return h
@@ -439,7 +439,7 @@ def invertible_1x1_conv(name, z, logdet, reverse=False):
 
     if True:  # Set to "False" to use the LU-decomposed version
 
-        with tf.variable_scope(name):
+        with tf.compat.v1.variable_scope(name):
 
             shape = Z.int_shape(z)
             w_shape = [shape[3], shape[3]]
@@ -448,26 +448,26 @@ def invertible_1x1_conv(name, z, logdet, reverse=False):
             w_init = np.linalg.qr(np.random.randn(
                 *w_shape))[0].astype('float32')
 
-            w = tf.get_variable("W", dtype=tf.float32, initializer=w_init)
+            w = tf.compat.v1.get_variable("W", dtype=tf.float32, initializer=w_init)
 
             # dlogdet = tf.linalg.LinearOperator(w).log_abs_determinant() * shape[1]*shape[2]
-            dlogdet = tf.cast(tf.log(abs(tf.matrix_determinant(
+            dlogdet = tf.cast(tf.math.log(abs(tf.linalg.det(
                 tf.cast(w, 'float64')))), 'float32') * shape[1]*shape[2]
 
             if not reverse:
 
                 _w = tf.reshape(w, [1, 1] + w_shape)
-                z = tf.nn.conv2d(z, _w, [1, 1, 1, 1],
-                                 'SAME', data_format='NHWC')
+                z = tf.nn.conv2d(input=z, filters=_w, strides=[1, 1, 1, 1],
+                                 padding='SAME', data_format='NHWC')
                 logdet += dlogdet
 
                 return z, logdet
             else:
 
-                _w = tf.matrix_inverse(w)
+                _w = tf.linalg.inv(w)
                 _w = tf.reshape(_w, [1, 1]+w_shape)
-                z = tf.nn.conv2d(z, _w, [1, 1, 1, 1],
-                                 'SAME', data_format='NHWC')
+                z = tf.nn.conv2d(input=z, filters=_w, strides=[1, 1, 1, 1],
+                                 padding='SAME', data_format='NHWC')
                 logdet -= dlogdet
 
                 return z, logdet
@@ -476,7 +476,7 @@ def invertible_1x1_conv(name, z, logdet, reverse=False):
 
         # LU-decomposed version
         shape = Z.int_shape(z)
-        with tf.variable_scope(name):
+        with tf.compat.v1.variable_scope(name):
 
             dtype = 'float64'
 
@@ -491,13 +491,13 @@ def invertible_1x1_conv(name, z, logdet, reverse=False):
             np_log_s = np.log(abs(np_s))
             np_u = np.triu(np_u, k=1)
 
-            p = tf.get_variable("P", initializer=np_p, trainable=False)
-            l = tf.get_variable("L", initializer=np_l)
-            sign_s = tf.get_variable(
+            p = tf.compat.v1.get_variable("P", initializer=np_p, trainable=False)
+            l = tf.compat.v1.get_variable("L", initializer=np_l)
+            sign_s = tf.compat.v1.get_variable(
                 "sign_S", initializer=np_sign_s, trainable=False)
-            log_s = tf.get_variable("log_S", initializer=np_log_s)
+            log_s = tf.compat.v1.get_variable("log_S", initializer=np_log_s)
             # S = tf.get_variable("S", initializer=np_s)
-            u = tf.get_variable("U", initializer=np_u)
+            u = tf.compat.v1.get_variable("U", initializer=np_u)
 
             p = tf.cast(p, dtype)
             l = tf.cast(l, dtype)
@@ -509,16 +509,16 @@ def invertible_1x1_conv(name, z, logdet, reverse=False):
 
             l_mask = np.tril(np.ones(w_shape, dtype=dtype), -1)
             l = l * l_mask + tf.eye(*w_shape, dtype=dtype)
-            u = u * np.transpose(l_mask) + tf.diag(sign_s * tf.exp(log_s))
+            u = u * np.transpose(l_mask) + tf.linalg.tensor_diag(sign_s * tf.exp(log_s))
             w = tf.matmul(p, tf.matmul(l, u))
 
             if True:
-                u_inv = tf.matrix_inverse(u)
-                l_inv = tf.matrix_inverse(l)
-                p_inv = tf.matrix_inverse(p)
+                u_inv = tf.linalg.inv(u)
+                l_inv = tf.linalg.inv(l)
+                p_inv = tf.linalg.inv(p)
                 w_inv = tf.matmul(u_inv, tf.matmul(l_inv, p_inv))
             else:
-                w_inv = tf.matrix_inverse(w)
+                w_inv = tf.linalg.inv(w)
 
             w = tf.cast(w, tf.float32)
             w_inv = tf.cast(w_inv, tf.float32)
@@ -527,24 +527,24 @@ def invertible_1x1_conv(name, z, logdet, reverse=False):
             if not reverse:
 
                 w = tf.reshape(w, [1, 1] + w_shape)
-                z = tf.nn.conv2d(z, w, [1, 1, 1, 1],
-                                 'SAME', data_format='NHWC')
-                logdet += tf.reduce_sum(log_s) * (shape[1]*shape[2])
+                z = tf.nn.conv2d(input=z, filters=w, strides=[1, 1, 1, 1],
+                                 padding='SAME', data_format='NHWC')
+                logdet += tf.reduce_sum(input_tensor=log_s) * (shape[1]*shape[2])
 
                 return z, logdet
             else:
 
                 w_inv = tf.reshape(w_inv, [1, 1]+w_shape)
                 z = tf.nn.conv2d(
-                    z, w_inv, [1, 1, 1, 1], 'SAME', data_format='NHWC')
-                logdet -= tf.reduce_sum(log_s) * (shape[1]*shape[2])
+                    input=z, filters=w_inv, strides=[1, 1, 1, 1], padding='SAME', data_format='NHWC')
+                logdet -= tf.reduce_sum(input_tensor=log_s) * (shape[1]*shape[2])
 
                 return z, logdet
 
 
 @add_arg_scope
 def split2d(name, z, objective=0.):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         n_z = Z.int_shape(z)[3]
         z1 = z[:, :, :, :n_z // 2]
         z2 = z[:, :, :, n_z // 2:]
@@ -557,7 +557,7 @@ def split2d(name, z, objective=0.):
 
 @add_arg_scope
 def split2d_reverse(name, z, eps, eps_std):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         z1 = Z.unsqueeze2d(z)
         pz = split2d_prior(z1)
         if eps is not None:

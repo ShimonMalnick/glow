@@ -8,19 +8,19 @@ _SHUFFLE_FACTOR = 4
 
 
 def parse_tfrecord_tf(record, res, rnd_crop):
-    features = tf.parse_single_example(record, features={
-        'shape': tf.FixedLenFeature([3], tf.int64),
-        'data': tf.FixedLenFeature([], tf.string),
-        'label': tf.FixedLenFeature([1], tf.int64)})
+    features = tf.io.parse_single_example(serialized=record, features={
+        'shape': tf.io.FixedLenFeature([3], tf.int64),
+        'data': tf.io.FixedLenFeature([], tf.string),
+        'label': tf.io.FixedLenFeature([1], tf.int64)})
     # label is always 0 if uncondtional
     # to get CelebA attr, add 'attr': tf.FixedLenFeature([40], tf.int64)
     data, label, shape = features['data'], features['label'], features['shape']
     label = tf.cast(tf.reshape(label, shape=[]), dtype=tf.int32)
-    img = tf.decode_raw(data, tf.uint8)
+    img = tf.io.decode_raw(data, tf.uint8)
     if rnd_crop:
         # For LSUN Realnvp only - random crop
         img = tf.reshape(img, shape)
-        img = tf.random_crop(img, [res, res, 3])
+        img = tf.image.random_crop(img, [res, res, 3])
     img = tf.reshape(img, [res, res, 3])
     return img, label  # to get CelebA attr, also return attr
 
@@ -34,7 +34,7 @@ def input_fn(tfr_file, shards, rank, pmap, fmap, n_batch, resolution, rnd_crop, 
     if is_training:
         # shuffle order of files in shard
         files = files.shuffle(buffer_size=_FILES_SHUFFLE)
-    dset = files.apply(tf.contrib.data.parallel_interleave(
+    dset = files.apply(tf.data.experimental.parallel_interleave(
         tf.data.TFRecordDataset, cycle_length=fmap))
     if is_training:
         dset = dset.shuffle(buffer_size=n_batch * _SHUFFLE_FACTOR)
@@ -43,7 +43,7 @@ def input_fn(tfr_file, shards, rank, pmap, fmap, n_batch, resolution, rnd_crop, 
         x, resolution, rnd_crop), num_parallel_calls=pmap)
     dset = dset.batch(n_batch)
     dset = dset.prefetch(1)
-    itr = dset.make_one_shot_iterator()
+    itr = tf.compat.v1.data.make_one_shot_iterator(dset)
     return itr
 
 

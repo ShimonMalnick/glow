@@ -60,7 +60,7 @@ def x_to_uint8(x):
 
 
 def centre_crop(img):
-    h, w = tf.shape(img)[0], tf.shape(img)[1]
+    h, w = tf.shape(input=img)[0], tf.shape(input=img)[1]
     min_side = tf.minimum(h, w)
     h_offset = (h - min_side) // 2
     w_offset = (w - min_side) // 2
@@ -74,7 +74,7 @@ def downsample(img):
 def parse_image(max_res):
     def _process_image(img):
         img = centre_crop(img)
-        img = tf.image.resize_images(
+        img = tf.image.resize(
             img, [max_res, max_res], method=_DOWNSAMPLING)
         img = tf.cast(img, 'float32')
         resolution_log2 = int(np.log2(max_res))
@@ -88,12 +88,12 @@ def parse_image(max_res):
 
     def _parse_image(example):
         feature_map = {
-            'image/encoded': tf.FixedLenFeature([], dtype=tf.string,
+            'image/encoded': tf.io.FixedLenFeature([], dtype=tf.string,
                                                 default_value=''),
-            'image/class/label': tf.FixedLenFeature([1], dtype=tf.int64,
+            'image/class/label': tf.io.FixedLenFeature([1], dtype=tf.int64,
                                                     default_value=-1)
         }
-        features = tf.parse_single_example(example, feature_map)
+        features = tf.io.parse_single_example(serialized=example, features=feature_map)
         img, label = features['image/encoded'], features['image/class/label']
         label = tf.cast(tf.reshape(label, shape=[]), dtype=tf.int32) - 1
         img = tf.image.decode_jpeg(img, channels=_NUM_CHANNELS)
@@ -117,17 +117,17 @@ def parse_celeba_image(max_res, transpose=False):
         return q_imgs
 
     def _parse_image(example):
-        features = tf.parse_single_example(example, features={
-            'shape': tf.FixedLenFeature([3], tf.int64),
-            'data': tf.FixedLenFeature([], tf.string),
-            'attr': tf.FixedLenFeature([40], tf.int64)})
+        features = tf.io.parse_single_example(serialized=example, features={
+            'shape': tf.io.FixedLenFeature([3], tf.int64),
+            'data': tf.io.FixedLenFeature([], tf.string),
+            'attr': tf.io.FixedLenFeature([40], tf.int64)})
         shape = features['shape']
         data = features['data']
         attr = features['attr']
-        data = tf.decode_raw(data, tf.uint8)
+        data = tf.io.decode_raw(data, tf.uint8)
         img = tf.reshape(data, shape)
         if transpose:
-            img = tf.transpose(img, (1, 2, 0))  # CHW -> HWC
+            img = tf.transpose(a=img, perm=(1, 2, 0))  # CHW -> HWC
         imgs = _process_image(img)
         parsed = (attr, *imgs)
         return parsed
@@ -163,12 +163,12 @@ def dump_celebahq(data_dir, tfrecord_dir, max_res, split, write):
     resolution_log2 = int(np.log2(max_res))
     if max_res != 2 ** resolution_log2:
         error('Input image resolution must be a power-of-two')
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
         print("Reading data from ", data_dir)
         if split:
             tfr_files = get_tfr_files(data_dir, split, int(np.log2(max_res)))
             files = tf.data.Dataset.list_files(tfr_files)
-            dset = files.apply(tf.contrib.data.parallel_interleave(
+            dset = files.apply(tf.data.experimental.parallel_interleave(
                 tf.data.TFRecordDataset, cycle_length=_NUM_PARALLEL_FILE_READERS))
             transpose = False
         else:
@@ -179,9 +179,9 @@ def dump_celebahq(data_dir, tfrecord_dir, max_res, split, write):
         parse_fn = parse_celeba_image(max_res, transpose)
         dset = dset.map(parse_fn, num_parallel_calls=_NUM_PARALLEL_MAP_CALLS)
         dset = dset.prefetch(1)
-        iterator = dset.make_one_shot_iterator()
+        iterator = tf.compat.v1.data.make_one_shot_iterator(dset)
         _attr, *_imgs = iterator.get_next()
-        sess.run(tf.global_variables_initializer())
+        sess.run(tf.compat.v1.global_variables_initializer())
         splits = [split] if split else ["validation", "train"]
         for split in splits:
             total_imgs = _NUM_IMAGES[split]
@@ -212,7 +212,7 @@ def dump_imagenet(data_dir, tfrecord_dir, max_res, split, write):
     if max_res != 2 ** resolution_log2:
         error('Input image resolution must be a power-of-two')
 
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
         is_training = (split == 'train')
         if is_training:
             files = tf.data.Dataset.list_files(
@@ -223,7 +223,7 @@ def dump_imagenet(data_dir, tfrecord_dir, max_res, split, write):
 
         files = files.shuffle(buffer_size=_NUM_FILES[split])
 
-        dataset = files.apply(tf.contrib.data.parallel_interleave(
+        dataset = files.apply(tf.data.experimental.parallel_interleave(
             tf.data.TFRecordDataset, cycle_length=_NUM_PARALLEL_FILE_READERS))
 
         dataset = dataset.shuffle(buffer_size=_SHUFFLE_BUFFER)
@@ -231,11 +231,11 @@ def dump_imagenet(data_dir, tfrecord_dir, max_res, split, write):
         dataset = dataset.map(
             parse_fn, num_parallel_calls=_NUM_PARALLEL_MAP_CALLS)
         dataset = dataset.prefetch(1)
-        iterator = dataset.make_one_shot_iterator()
+        iterator = tf.compat.v1.data.make_one_shot_iterator(dataset)
 
         _label, *_imgs = iterator.get_next()
 
-        sess.run(tf.global_variables_initializer())
+        sess.run(tf.compat.v1.global_variables_initializer())
 
         total_imgs = _NUM_IMAGES[split]
         shards = _NUM_SHARDS[split]
@@ -268,8 +268,8 @@ class TFRecordExporter:
         if not os.path.isdir(self.tfrecord_dir):
             os.makedirs(self.tfrecord_dir)
         assert (os.path.isdir(self.tfrecord_dir))
-        tfr_opt = tf.python_io.TFRecordOptions(
-            tf.python_io.TFRecordCompressionType.NONE)
+        tfr_opt = tf.io.TFRecordOptions(
+            tf.compat.v1.python_io.TFRecordCompressionType.NONE)
         for lod in range(self.resolution_log2 - 1):
             p_shard = np.array_split(
                 np.random.permutation(expected_images), shards)
@@ -280,7 +280,7 @@ class TFRecordExporter:
                 tfr_file = self.tfr_prefix + \
                     '-r%02d-s-%04d-of-%04d.tfrecords' % (
                         self.resolution_log2 - lod, shard, shards)
-                writers.append(tf.python_io.TFRecordWriter(tfr_file, tfr_opt))
+                writers.append(tf.io.TFRecordWriter(tfr_file, tfr_opt))
             #print(np.unique(img_to_shard, return_counts=True))
             counts = np.unique(img_to_shard, return_counts=True)[1]
             assert len(counts) == shards

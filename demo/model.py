@@ -9,20 +9,21 @@ lock = Lock()
 
 
 def get(name):
-    return tf.get_default_graph().get_tensor_by_name('import/' + name + ':0')
+    return tf.compat.v1.get_default_graph().get_tensor_by_name(name + ':0')
+    # return tf.compat.v1.get_default_graph().get_tensor_by_name('import/' + name + ':0')
 
 
 def tensorflow_session():
     # Init session and params
-    config = tf.ConfigProto()
+    config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
     # Pin GPU to local rank (one GPU per process)
     config.gpu_options.visible_device_list = str(0)
-    sess = tf.Session(config=config)
+    sess = tf.compat.v1.Session(config=config)
     return sess
 
-
-optimized = True
+# optimized = True
+optimized = False
 if optimized:
     # Optimized model. Twice as fast as
     # 1. we freeze conditional network (label is always 0)
@@ -51,7 +52,7 @@ if optimized:
     def update_feed(feed_dict, bs):
         return feed_dict
 else:
-    graph_path = 'graph_unoptimized.pb'
+    graph_path = '../models/graph_unoptimized.pb'
     inputs = {
         'dec_eps_0': 'Placeholder',
         'dec_eps_1': 'Placeholder_1',
@@ -80,8 +81,8 @@ else:
         feed_dict[enc_y] = y
         return feed_dict
 
-with tf.gfile.GFile(graph_path, 'rb') as f:
-    graph_def_optimized = tf.GraphDef()
+with tf.io.gfile.GFile(graph_path, 'rb') as f:
+    graph_def_optimized = tf.compat.v1.GraphDef()
     graph_def_optimized.ParseFromString(f.read())
 
 sess = tensorflow_session()
@@ -106,7 +107,7 @@ eps_shapes = [(128, 128, 6), (64, 64, 12), (32, 32, 24),
               (16, 16, 48), (8, 8, 96), (4, 4, 384)]
 eps_sizes = [np.prod(e) for e in eps_shapes]
 eps_size = 256 * 256 * 3
-z_manipulate = np.load('z_manipulate.npy')
+z_manipulate = np.load('../models/z_manipulate.npy')
 
 _TAGS = "5_o_Clock_Shadow Arched_Eyebrows Attractive Bags_Under_Eyes Bald Bangs Big_Lips Big_Nose Black_Hair Blond_Hair Blurry Brown_Hair Bushy_Eyebrows Chubby Double_Chin Eyeglasses Goatee Gray_Hair Heavy_Makeup High_Cheekbones Male Mouth_Slightly_Open Mustache Narrow_Eyes No_Beard Oval_Face Pale_Skin Pointy_Nose Receding_Hairline Rosy_Cheeks Sideburns Smiling Straight_Hair Wavy_Hair Wearing_Earrings Wearing_Hat Wearing_Lipstick Wearing_Necklace Wearing_Necktie Young"
 _TAGS = _TAGS.split()

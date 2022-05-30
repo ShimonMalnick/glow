@@ -31,7 +31,7 @@ def polyak(params, beta):
 def adam(params, cost_or_grads, alpha=3e-4, hps=None, epsilon=1e-8):
     updates = []
     if type(cost_or_grads) is not list:
-        gs = tf.gradients(cost_or_grads, params)
+        gs = tf.gradients(ys=cost_or_grads, xs=params)
     else:
         gs = cost_or_grads
 
@@ -75,7 +75,7 @@ Version whose learning rate could, in theory, be scaled linearly (like SGD+momen
 def adam2(params, cost_or_grads, alpha=3e-4, hps=None, epsilon=1e-8):
     updates = []
     if type(cost_or_grads) is not list:
-        gs = tf.gradients(cost_or_grads, params)
+        gs = tf.gradients(ys=cost_or_grads, xs=params)
     else:
         gs = cost_or_grads
 
@@ -120,7 +120,7 @@ It doesn't seem to work though.
 def adam2_old(params, cost_or_grads, lr=3e-4, mom1=0.9, mom2=0.999, epsilon=1e-8):
     updates = []
     if type(cost_or_grads) is not list:
-        gs = tf.gradients(cost_or_grads, params)
+        gs = tf.gradients(ys=cost_or_grads, xs=params)
     else:
         gs = cost_or_grads
 
@@ -152,7 +152,7 @@ def adam2_old(params, cost_or_grads, lr=3e-4, mom1=0.9, mom2=0.999, epsilon=1e-8
 def adamax(params, cost_or_grads, alpha=3e-4, hps=None, epsilon=1e-8):
     updates = []
     if type(cost_or_grads) is not list:
-        gs = tf.gradients(cost_or_grads, params)
+        gs = tf.gradients(ys=cost_or_grads, xs=params)
     else:
         gs = cost_or_grads
 
@@ -189,7 +189,7 @@ def adamax(params, cost_or_grads, alpha=3e-4, hps=None, epsilon=1e-8):
 def adam(params, cost_or_grads, alpha=3e-4, hps=None, epsilon=1e-8):
     updates = []
     if type(cost_or_grads) is not list:
-        gs = tf.gradients(cost_or_grads, params)
+        gs = tf.gradients(ys=cost_or_grads, xs=params)
     else:
         gs = cost_or_grads
 

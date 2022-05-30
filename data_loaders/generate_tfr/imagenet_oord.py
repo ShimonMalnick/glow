@@ -67,8 +67,8 @@ def dump(fn_root, tfrecord_dir, max_res, expected_images, shards, write):
     assert num_examples == expected_images
 
     # Sharding
-    tfr_opt = tf.python_io.TFRecordOptions(
-        tf.python_io.TFRecordCompressionType.NONE)
+    tfr_opt = tf.io.TFRecordOptions(
+        tf.compat.v1.python_io.TFRecordCompressionType.NONE)
     p_shard = np.array_split(np.random.permutation(expected_images), shards)
     img_to_shard = np.zeros(expected_images, dtype=np.int)
     writers = []
@@ -77,7 +77,7 @@ def dump(fn_root, tfrecord_dir, max_res, expected_images, shards, write):
         tfr_file = tfr_prefix + \
             '-r%02d-s-%04d-of-%04d.tfrecords' % (
                 resolution_log2, shard, shards)
-        writers.append(tf.python_io.TFRecordWriter(tfr_file, tfr_opt))
+        writers.append(tf.io.TFRecordWriter(tfr_file, tfr_opt))
 
     # print(np.unique(img_to_shard, return_counts=True))
     counts = np.unique(img_to_shard, return_counts=True)[1]
