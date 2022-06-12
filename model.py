@@ -4,8 +4,7 @@ import tfops as Z
 import optim
 import numpy as np
 import horovod.tensorflow as hvd
-from tensorflow.contrib.framework.python.ops import add_arg_scope
-
+from tf_slim import add_arg_scope
 
 '''
 f_loss: function with as input the (x,y,reuse=False), and as output a list/tuple whose first element is the loss.
@@ -205,8 +204,10 @@ def model(sess, hps, train_iterator, test_iterator, data_init):
         return bits_x, bits_y, classification_error
 
     def f_loss(iterator, is_training, reuse=False):
+        print("*" * 30)
         if hps.direct_iterator and iterator is not None:
             x, y = iterator.get_next()
+            print(x.shape)
         else:
             x, y = X, Y
 

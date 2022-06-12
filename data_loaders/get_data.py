@@ -31,11 +31,13 @@ def input_fn(tfr_file, shards, rank, pmap, fmap, n_batch, resolution, rnd_crop, 
         # For 'lsun' validation, only one shard and each machine goes over the full dataset
         # each worker works on a subset of the data
         files = files.shard(shards, rank)
-    if is_training:
+    # if is_training:
         # shuffle order of files in shard
-        files = files.shuffle(buffer_size=_FILES_SHUFFLE)
-    dset = files.apply(tf.data.experimental.parallel_interleave(
-        tf.data.TFRecordDataset, cycle_length=fmap))
+    files = files.shuffle(buffer_size=_FILES_SHUFFLE)
+    dset = files.interleave(map_func=tf.data.TFRecordDataset, cycle_length=fmap, block_length=1,
+                         num_parallel_calls=tf.data.AUTOTUNE)
+    # dset = files.apply(tf.data.experimental.parallel_interleave(
+    #     tf.data.TFRecordDataset, cycle_length=fmap))
     if is_training:
         dset = dset.shuffle(buffer_size=n_batch * _SHUFFLE_FACTOR)
     dset = dset.repeat()

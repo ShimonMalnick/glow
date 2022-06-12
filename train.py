@@ -12,7 +12,7 @@ import tensorflow as tf
 import graphics
 from utils import ResultLogger
 
-learn = tf.contrib.learn
+# learn = tf.contrib.learn
 
 # Surpress verbose warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -79,7 +79,7 @@ def get_data(hps, sess):
                'imagenet': 1000, 'celeba': 1, 'lsun_realnvp': 1, 'lsun': 1}[hps.problem]
     if hps.data_dir == "":
         hps.data_dir = {'mnist': None, 'cifar10': None, 'imagenet-oord': '/mnt/host/imagenet-oord-tfr', 'imagenet': '/mnt/host/imagenet-tfr',
-                        'celeba': '/mnt/host/celeba-reshard-tfr', 'lsun_realnvp': '/mnt/host/lsun_realnvp', 'lsun': '/mnt/host/lsun'}[hps.problem]
+                        'celeba': '/home/yandex/AMNLP2021/malnick/datasets/celebA/glow_celebA/celeba-tfr', 'lsun_realnvp': '/mnt/host/lsun_realnvp', 'lsun': '/mnt/host/lsun'}[hps.problem]
 
     if hps.problem == 'lsun_realnvp':
         hps.rnd_crop = True
@@ -107,6 +107,7 @@ def get_data(hps, sess):
         train_iterator, test_iterator, data_init = \
             v.get_data(sess, hps.data_dir, hvd.size(), hvd.rank(), hps.pmap, hps.fmap, hps.local_batch_train,
                        hps.local_batch_test, hps.local_batch_init, hps.image_size, hps.rnd_crop)
+        print("data init shape: ", data_init['x'].shape)
 
     elif hps.problem in ['mnist', 'cifar10']:
         hps.direct_iterator = False
@@ -312,6 +313,7 @@ def tensorflow_session():
     config.gpu_options.allow_growth = True
     # Pin GPU to local rank (one GPU per process)
     config.gpu_options.visible_device_list = str(hvd.local_rank())
+    tf.compat.v1.disable_eager_execution()
     sess = tf.compat.v1.Session(config=config)
     return sess
 
@@ -412,3 +414,5 @@ if __name__ == "__main__":
 
     hps = parser.parse_args()  # So error if typo
     main(hps)
+
+

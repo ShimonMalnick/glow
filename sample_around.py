@@ -4,11 +4,11 @@ import numpy as np
 import tensorflow as tf
 import time
 from tqdm import tqdm
-from PIL import Image
+from PIL import Image, ImageFont, ImageDraw
 from threading import Lock
 import imageio
 from glob import glob
-from typing import  List
+from typing import List
 
 lock = Lock()
 
@@ -140,6 +140,7 @@ def random(bs=1, eps_std=0.7):
 
 
 def test():
+
     img = Image.open('demo/test/img.png')
     img = np.reshape(np.array(img), [1, 256, 256, 3])
 
@@ -147,7 +148,7 @@ def test():
     eps = encode(img)
     n_samples = 100
     # std = 0.08
-    dists: List[float] = np.linspace(0.3, 0.6, 5).tolist()
+    dists: List[float] = np.linspace(0.05, 0.8, 16).tolist()
     for d in dists:
         os.mkdir(f'samples/{d:.3f}')
         new_eps = np.random.normal(scale=d, size=[n_samples, eps_size]) + eps
@@ -165,6 +166,49 @@ def test():
         video.close()
 
 
+def random_images(batch_size=16, n_imgs=64, eps_std=0.7):
+    n_iters = n_imgs // batch_size
+    images  = []
+    for i in range(n_iters):
+        tensors, _ = random(batch_size, eps_std)
+        images += [Image.fromarray(tensors[i]) for i in range(batch_size)]
+
+    for i in range(len(images)):
+        images[i].save('samples/random/im_' + str(i) + '.png')
+    paths = glob(f'samples/random/*.png')
+    video = imageio.get_writer(f'samples/random/vid.mp4', mode='I', fps=2, codec='libx264', bitrate='16M')
+    for im in paths:
+        video.append_data(imageio.imread(im))
+    video.close()
+
+
+def interpolate_2_images(im1_path, im2_path, alpha_steps=41, alpha_max=2.0):
+    steps = np.linspace(0, alpha_max, alpha_steps)
+    im1, im2 = Image.open(im1_path), Image.open(im2_path)
+    im1 = np.reshape(np.array(im1), [1, 256, 256, 3])
+    im2 = np.reshape(np.array(im2), [1, 256, 256, 3])
+    z_1 = encode(im1)
+    z_2 = encode(im2)
+    delta_z = z_2 - z_1
+    with open(f"experiments/interpolation/info.txt", "w") as f:
+        f.write(f"images paths: im1: {im1_path}\nim2: {im2_path}\n")
+        f.write(f'alpha_steps: {alpha_steps}\nalpha_max: {alpha_max}\n')
+    for i in range(alpha_steps):
+        cur_z = z_1 + delta_z * steps[i]
+        cur_image = decode(cur_z)
+        Image.fromarray(cur_image[0]).save(f'experiments/interpolation/step_{i}.png')
+
+
+def create_video_with_labels(out_path, paths, labels, fps=2, codec='libx264', bitrate='16M'):
+    video = imageio.get_writer(out_path, mode='I', fps=fps, codec=codec, bitrate=bitrate)
+    images = [Image.open(path) for path in paths]
+    font = ImageFont.truetype('f1.ttf', 16)
+    for i in range(len(paths)):
+        cur_draw = ImageDraw.Draw(images[i])
+        cur_draw.text((150, 0), labels[i], font=font, fill=(255, 0, 0))
+        video.append_data(np.asarray(images[i]))
+
+    video.close()
 
 # warm start
 _img, _z = random(1)
@@ -172,4 +216,10 @@ _z = encode(_img)
 print("Warm started tf model")
 
 if __name__ == '__main__':
-    test()
+    # interpolate_2_images('experiments/interpolation/im1.png', 'experiments/interpolation/im2.png')
+    labels: List[float] = np.linspace(0, 2, 41).tolist()
+    labels: List[str] = ['alpha = ' + str(round(l, 2)) for l in labels]
+    paths = [f'experiments/interpolation/images/step_{i}.png' for i in range(len(labels))]
+    create_video_with_labels('experiments/interpolation/vid.mp4', paths, labels)
+    # random_images()
+    # test()

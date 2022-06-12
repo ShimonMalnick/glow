@@ -1,9 +1,7 @@
 import tensorflow as tf
-from tensorflow.contrib.framework.python.ops import add_arg_scope, arg_scope
-from tensorflow.contrib.layers import variance_scaling_initializer
 import numpy as np
 import horovod.tensorflow as hvd
-
+from tf_slim import arg_scope, add_arg_scope
 # Debugging function
 do_print_act_stats = True
 
